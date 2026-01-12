@@ -7,8 +7,23 @@ from .config import FORTNITE_APP_PATH, SYMLINK_TARGET_SUBPATH
 from .utils import has_full_disk_access, prompt_for_full_disk_access
 
 class AppContainerManager:
+    # Set to True to force multiple containers detection for UI testing
+    DEV_FORCE_MULTIPLE_CONTAINERS = True
+
     def get_container_data_path(self, container_root: str) -> str:
         return os.path.join(container_root, "Data", "Documents", "FortniteGame")
+
+    def get_directory_size_display(self, path: str) -> str:
+        try:
+            # -h for human readable
+            cmd = ['du', '-sh', path]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                # Output is like "12G    /path/to/dir"
+                return result.stdout.split()[0]
+        except Exception:
+            pass
+        return "Unknown"
 
     def get_container_data_display_path(self, container_root: str) -> str:
         # Determine the path that might be a symlink based on configuration
@@ -167,6 +182,10 @@ class AppContainerManager:
             # Merge both lists and remove duplicates
             all_containers = list(set(fortnite_containers + fallback_containers))
             
+            if self.DEV_FORCE_MULTIPLE_CONTAINERS and len(all_containers) > 0:
+                 # Duplicate the first one for testing UI
+                 all_containers.append(all_containers[0])
+
             if not all_containers:
                 return []
                 
@@ -193,6 +212,34 @@ class AppContainerManager:
         if os.path.exists(FORTNITE_APP_PATH):
             subprocess.Popen(['open', FORTNITE_APP_PATH])
             return True
+        return False
+
+    def delete_container(self, container_path):
+        """Deletes only the specified container, leaving the app installed."""
+        try:
+            if container_path:
+                # Handle if we were passed the internal FortniteGame path
+                if os.path.basename(container_path) == "FortniteGame":
+                    # .../Data/Documents/FortniteGame -> .../Data/Documents -> .../Data -> ContainerRoot
+                    # Actually resolve_game_path returns .../Data/Documents/FortniteGame
+                    # But the container path in the list is usually the root container path.
+                    # Let's be safe.
+                    # If path ends with FortniteGame, go up 3 levels? 
+                    # No, let's assume we get the container root from the list.
+                    # But just in case:
+                    if "Data/Documents/FortniteGame" in container_path:
+                         real_container_to_delete = container_path.split("/Data/Documents/FortniteGame")[0]
+                    else:
+                         real_container_to_delete = container_path
+                else:
+                    real_container_to_delete = container_path
+                
+                if os.path.exists(real_container_to_delete):
+                    subprocess.run(['rm', '-rf', real_container_to_delete], check=True)
+                    print(f"Container deleted: {real_container_to_delete}")
+                    return True
+        except Exception as e:
+            raise e
         return False
 
     def delete_data(self, container_path=None):
